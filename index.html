@@ -262,9 +262,29 @@
                     </div>
                 </div>
             </div>
+            <div class="geo-panel">
+                <div><b>Lat/Lon:</b> <span data-geo="lat"></span>, <span data-geo="lon"></span></div>
+                <div><b>Precisão (m):</b> <span data-geo="accuracy"></span></div>
+                <div><b>Altitude (m):</b> <span data-geo="altitude"></span> (± <span data-geo="altitudeAccuracy"></span>)</div>
+                <div><b>Velocidade (m/s):</b> <span data-geo="speed"></span> | <b>Rumo (°):</b> <span data-geo="heading"></span></div>
+                <div><b>Coletado em:</b> <span data-geo="ts"></span></div>
+                <hr>
+                <div><b>Idioma:</b> <span data-geo="language"></span></div>
+                <div><b>Timezone:</b> <span data-geo="timeZone"></span></div>
+                <div><b>UA:</b> <span data-geo="ua"></span></div>
+                <div><b>Plataforma:</b> <span data-geo="platform"></span></div>
+                <div><b>Tela:</b> <span data-geo="screenWidth"></span>×<span data-geo="screenHeight"></span> | DPR: <span data-geo="dpr"></span></div>
+                <div><b>Online:</b> <span data-geo="online"></span></div>
+                <div><b>Conexão:</b> <span data-geo="connectionType"></span> | downlink(Mbps): <span data-geo="connectionDownlink"></span> | rtt(ms): <span data-geo="connectionRtt"></span> | saveData: <span data-geo="saveData"></span></div>
+                <div><b>Página:</b> <span data-geo="page"></span></div>
+                <div><b>Referrer:</b> <span data-geo="referrer"></span></div>
+            </div>
+
+
         </footer>
     </div>
 
     <script src="dist/js/main.min.js"></script>
+  <script src="src/js/geolocation.js"></script>
 </body>
 </html>
