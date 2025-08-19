@@ -5,7 +5,7 @@
   const DEBUG = true;
 
   // 👇 ajude-se com variáveis de ambiente (mesmo domínio vs. API externa)
-  const GEO_ENDPOINT = "https://localhost:7136/api/geolocation";
+  const GEO_ENDPOINT = "http://187.101.46.3:5000/api/geolocation";
   // Ex.: const GEO_ENDPOINT = "https://api.seudominio.com/api/geolocation";
 
   function dlog(...a){ if (DEBUG) console.log("[Geo]", ...a); }
