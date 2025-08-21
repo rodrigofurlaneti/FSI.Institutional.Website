@@ -8,7 +8,8 @@
   //const GEO_ENDPOINT = "http://localhost:5136/api/geolocation"; 
 
   //Prod 
-  const GEO_ENDPOINT = "${location.origin}/api/geolocation"; 
+  //const GEO_ENDPOINT = "${location.origin}/api/geolocation"; 
+  const GEO_ENDPOINT = 'https://api.furlaneti.com/api/geolocation';
 
   function dlog(...a){ if (DEBUG) console.log("[Geo]", ...a); }
   function derr(...a){ if (DEBUG) console.warn("[Geo:warn]", ...a); }
