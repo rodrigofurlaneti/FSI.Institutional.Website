@@ -1,5 +1,6 @@
 // src/js/geolocation.js
 (function () {
+  let started = false;  
   const CACHE_KEY = "fsi.clientGeo";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const DEBUG = true;
@@ -304,19 +305,31 @@
     window.dispatchEvent(new CustomEvent("fsi:geo", { detail: fields }));
   }
 
+  // async function postLog(payload){
+  //   try {
+  //     dlog("posting", GEO_ENDPOINT, payload);
+  //     const res = await fetch(GEO_ENDPOINT, {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(payload)
+  //     });
+  //     dlog("log response", res.status);
+  //   } catch(e){ derr("postLog error (ignored)", e); }
+  // }
+
   async function postLog(payload){
-    try {
-      dlog("posting", GEO_ENDPOINT, payload);
-      const res = await fetch(GEO_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      dlog("log response", res.status);
-    } catch(e){ derr("postLog error (ignored)", e); }
+    const res = await fetch(GEO_ENDPOINT, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res;
   }
 
   async function init(){
+    if (started) return;
+    started = true;   
     dlog("init start");
     const env = await getEnvInfoAsync();
 
@@ -342,10 +355,10 @@
     }
   }
 
-  if(document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
   } else {
-    init();
+    init(); // script pode carregar depois do DOM já pronto
   }
 
   window.addEventListener("fsi:geo", (e) => dlog("ready (event)", e.detail));
