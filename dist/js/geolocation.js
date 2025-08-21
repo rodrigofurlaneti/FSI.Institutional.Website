@@ -1,5 +1,7 @@
 // src/js/geolocation.js
 (function () {
+  if (window.__FSI_GEO_LOADED__) return; // evita segunda execução
+  window.__FSI_GEO_LOADED__ = true;
   let started = false;  
   const CACHE_KEY = "fsi.clientGeo";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
