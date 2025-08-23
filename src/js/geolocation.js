@@ -7,14 +7,15 @@
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const DEBUG = true;
 
-  //Localhost 
-  //const GEO_ENDPOINT = "http://localhost:5136/api/geolocation"; 
-
   //Prod 
-  //const GEO_ENDPOINT = "${location.origin}/api/geolocation"; 
-  const GEO_ENDPOINT = 'https://api.furlaneti.com:433/api/geolocation';
-  const DB_ENDPOINT = "https://api.furlaneti.com:433/api/admin/health/database";
+  const API_PORT     = '4443';
+  const API_BASE     = `https://api.furlaneti.com:${API_PORT}`;
+  const GEO_ENDPOINT = `${API_BASE}/api/geolocation`;
+  const DB_ENDPOINT  = `${API_BASE}/api/admin/health/database`;
 
+  console.log(GEO_ENDPOINT);
+  console.log(DB_ENDPOINT);
+  
   function dlog(...a){ if (DEBUG) console.log("[Geo]", ...a); }
   function derr(...a){ if (DEBUG) console.warn("[Geo:warn]", ...a); }
   const now = () => Date.now();
@@ -343,7 +344,6 @@ async function checkDbStatus(){
       cache: "no-store"
     });
 
-    // Tenta ler o JSON (mesmo se não for 200)
     const data = await res.json().catch(() => null);
 
     const statusOk = res.ok && data?.status?.toLowerCase() === "ok";
@@ -389,10 +389,8 @@ async function checkDbStatus(){
       }
     }
 
-    // 🔽 Checa o DB logo no carregamento
     checkDbStatus();
 
-    // 🔽 Reexecuta a cada 30 segundos
     setInterval(checkDbStatus, 30000);
   }
 
