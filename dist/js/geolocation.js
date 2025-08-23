@@ -12,7 +12,8 @@
 
   //Prod 
   //const GEO_ENDPOINT = "${location.origin}/api/geolocation"; 
-  const GEO_ENDPOINT = 'https://api.furlaneti.com/api/geolocation';
+  const GEO_ENDPOINT = 'https://api.furlaneti.com:433/api/geolocation';
+  const DB_ENDPOINT = "https://api.furlaneti.com:433/api/admin/health/database";
 
   function dlog(...a){ if (DEBUG) console.log("[Geo]", ...a); }
   function derr(...a){ if (DEBUG) console.warn("[Geo:warn]", ...a); }
@@ -307,60 +308,98 @@
     window.dispatchEvent(new CustomEvent("fsi:geo", { detail: fields }));
   }
 
-  // async function postLog(payload){
-  //   try {
-  //     dlog("posting", GEO_ENDPOINT, payload);
-  //     const res = await fetch(GEO_ENDPOINT, {
-  //       method: "POST",
-  //       headers: { "Content-Type": "application/json" },
-  //       body: JSON.stringify(payload)
-  //     });
-  //     dlog("log response", res.status);
-  //   } catch(e){ derr("postLog error (ignored)", e); }
-  // }
-
-  async function postLog(payload){
+async function postLog(payload){
+  const indicator = document.getElementById("api-status-indicator");
+  try {
     const res = await fetch(GEO_ENDPOINT, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
+
+    if (indicator) {
+      indicator.style.backgroundColor = "green"; 
+      indicator.title = `API OK: ${GEO_ENDPOINT}`;  // tooltip verde
+    }
     return res;
+  } catch (err) {
+    if (indicator) {
+      indicator.style.backgroundColor = "red";   
+      indicator.title = `Erro API: ${GEO_ENDPOINT}\n${err.message}`; // tooltip vermelho
+    }
+    throw err;
   }
+}
+
+async function checkDbStatus(){
+  const indicator = document.getElementById("db-status-indicator");
+  if (!indicator) return;
+
+  try {
+    const res = await fetch(DB_ENDPOINT, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      cache: "no-store"
+    });
+
+    // Tenta ler o JSON (mesmo se não for 200)
+    const data = await res.json().catch(() => null);
+
+    const statusOk = res.ok && data?.status?.toLowerCase() === "ok";
+
+    if (statusOk) {
+      indicator.style.backgroundColor = "green";
+      indicator.title = `DB Online: ${DB_ENDPOINT}\n${data.elapsedMs} ms @ ${data.serverTimeUtc}`;
+    } else {
+      const msg = data?.error || data?.status || `HTTP ${res.status}`;
+      indicator.style.backgroundColor = "red";
+      indicator.title = `DB Offline: ${DB_ENDPOINT}\n${msg}`;
+    }
+  } catch (err) {
+    indicator.style.backgroundColor = "red";
+    indicator.title = `DB Offline: ${DB_ENDPOINT}\n${err.message}`;
+  }
+}
 
   async function init(){
     if (started) return;
     started = true;   
     dlog("init start");
+
     const env = await getEnvInfoAsync();
 
     const cached = readCache();
     if(cached?.coords){
       setDom({ geo: cached.coords, env });
       postLog({ geo: cached.coords, env }).catch(()=>{});
-      return;
+    } else {
+      try {
+        const pos = await getPosition();
+        const place = null;
+        const geo = pickAllFieldsFrom(pos, place);
+
+        writeCache(geo, place);
+        setDom({ geo, env });
+
+        await postLog({ geo, env });
+      } catch(err){
+        derr("Geolocation failed", err?.message || err);
+        await postLog({ geo: null, env, error: (err?.message || String(err)) }).catch(()=>{});
+      }
     }
 
-    try {
-      const pos = await getPosition();
-      const place = null; // reverse geocoding desativado
-      const geo = pickAllFieldsFrom(pos, place);
+    // 🔽 Checa o DB logo no carregamento
+    checkDbStatus();
 
-      writeCache(geo, place);
-      setDom({ geo, env });
-
-      await postLog({ geo, env });
-    } catch(err){
-      derr("Geolocation failed", err?.message || err);
-      await postLog({ geo: null, env, error: (err?.message || String(err)) }).catch(()=>{});
-    }
+    // 🔽 Reexecuta a cada 30 segundos
+    setInterval(checkDbStatus, 30000);
   }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init, { once: true });
   } else {
-    init(); // script pode carregar depois do DOM já pronto
+    init();
   }
 
   window.addEventListener("fsi:geo", (e) => dlog("ready (event)", e.detail));

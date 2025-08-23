@@ -12,8 +12,8 @@
 
   //Prod 
   //const GEO_ENDPOINT = "${location.origin}/api/geolocation"; 
-  const GEO_ENDPOINT = 'https://api.furlaneti.com/api/geolocation';
-  const DB_ENDPOINT = "https://api.furlaneti.com/api/admin/health/database";
+  const GEO_ENDPOINT = 'https://api.furlaneti.com:433/api/geolocation';
+  const DB_ENDPOINT = "https://api.furlaneti.com:433/api/admin/health/database";
 
   function dlog(...a){ if (DEBUG) console.log("[Geo]", ...a); }
   function derr(...a){ if (DEBUG) console.warn("[Geo:warn]", ...a); }
