@@ -267,23 +267,29 @@
             </div>
         </footer>
     </div>
-    <div class="geo-panel">
-                <div><b>Lat/Lon:</b> <span data-geo="lat"></span>, <span data-geo="lon"></span></div>
-                <div><b>Precisão (m):</b> <span data-geo="accuracy"></span></div>
-                <div><b>Altitude (m):</b> <span data-geo="altitude"></span> (± <span data-geo="altitudeAccuracy"></span>)</div>
-                <div><b>Velocidade (m/s):</b> <span data-geo="speed"></span> | <b>Rumo (°):</b> <span data-geo="heading"></span></div>
-                <div><b>Coletado em:</b> <span data-geo="ts"></span></div>
-                <hr>
-                <div><b>Idioma:</b> <span data-geo="language"></span></div>
-                <div><b>Timezone:</b> <span data-geo="timeZone"></span></div>
-                <div><b>UA:</b> <span data-geo="ua"></span></div>
-                <div><b>Plataforma:</b> <span data-geo="platform"></span></div>
-                <div><b>Tela:</b> <span data-geo="screenWidth"></span>×<span data-geo="screenHeight"></span> | DPR: <span data-geo="dpr"></span></div>
-                <div><b>Online:</b> <span data-geo="online"></span></div>
-                <div><b>Conexão:</b> <span data-geo="connectionType"></span> | downlink(Mbps): <span data-geo="connectionDownlink"></span> | rtt(ms): <span data-geo="connectionRtt"></span> | saveData: <span data-geo="saveData"></span></div>
-                <div><b>Página:</b> <span data-geo="page"></span></div>
-                <div><b>Referrer:</b> <span data-geo="referrer"></span></div>
-            </div>
+
+    <!-- Indicadores de Saúde (API / DB) -->
+    <div class="health-indicators" style="display:flex;gap:16px;justify-content:center;align-items:center;margin:16px 0;">
+    <!-- Farol da API -->
+    <div class="health-item" style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;">API</span>
+        <div id="api-status-indicator"
+            title="API não verificada ainda"
+            aria-label="Status da API"
+            style="width:16px;height:16px;border-radius:50%;background-color:gray;box-shadow:0 0 0 2px #e5e7eb inset;cursor:pointer;">
+        </div>
+    </div>
+
+    <!-- Farol do Banco -->
+    <div class="health-item" style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;">DB</span>
+        <div id="db-status-indicator"
+            title="DB não verificado ainda"
+            aria-label="Status do Banco de Dados"
+            style="width:16px;height:16px;border-radius:50%;background-color:gray;box-shadow:0 0 0 2px #e5e7eb inset;cursor:pointer;">
+        </div>
+    </div>
+    </div>
 
     <script src="dist/js/main.min.js"></script>
   <script src="src/js/geolocation.js"></script>
