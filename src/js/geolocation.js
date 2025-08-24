@@ -1,56 +1,89 @@
 // src/js/geolocation.js
 (function () {
-  if (window.__FSI_GEO_LOADED__) return; // evita segunda execução
+  if (window.__FSI_GEO_LOADED__) return;
   window.__FSI_GEO_LOADED__ = true;
-  let started = false;  
-  const CACHE_KEY = "fsi.clientGeo";
-  const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+  // ==========================
+  // Config
+  // ==========================
   const DEBUG = true;
+  const CACHE_KEY = "fsi.clientGeo";
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-  //Prod 
-  const API_PORT     = '4443';
-  const API_BASE     = `https://api.furlaneti.com:${API_PORT}`;
-  const GEO_ENDPOINT = `${API_BASE}/api/geolocation`;
-  const DB_ENDPOINT  = `${API_BASE}/api/admin/health/database`;
+  // Permite override via janela (útil em dev): window.__FSI_API_BASE = "https://localhost:4443"
+  const API_PORT = "4443";
+  const DEFAULT_API_BASE = `https://api.furlaneti.com:${API_PORT}`;
+  const API_BASE = (typeof window.__FSI_API_BASE === "string" && window.__FSI_API_BASE.trim()) ? window.__FSI_API_BASE.trim() : DEFAULT_API_BASE;
 
-  console.log(GEO_ENDPOINT);
-  console.log(DB_ENDPOINT);
-  
-  function dlog(...a){ if (DEBUG) console.log("[Geo]", ...a); }
-  function derr(...a){ if (DEBUG) console.warn("[Geo:warn]", ...a); }
+  // Endpoints
+  const GEO_ENDPOINT = `${API_BASE}/api/geolocation`;           // POST (CORS necessário)
+  const DB_ENDPOINT  = `${API_BASE}/api/admin/health/database`;  // GET (health)
+
+  // Tempo limite padrão das chamadas
+  const TIMEOUT_MS = 8000;
+
+  // Quando true, faz um OPTIONS antes do POST (diagnóstico de CORS)
+  const PREFLIGHT_DIAGNOSTIC = false;
+
+  // Retries do POST em caso de falha transitória (rede/reset)
+  const POST_RETRIES = 2;       // total de tentativas adicionais
+  const RETRY_BASE_MS = 500;    // backoff inicial
+
+  // ==========================
+  // Helpers
+  // ==========================
   const now = () => Date.now();
+  function dlog(...a) { if (DEBUG) console.log("[Geo]", ...a); }
+  function derr(...a) { if (DEBUG) console.warn("[Geo:warn]", ...a); }
 
-  // ---------- BOT / CRAWLER DETECTION ----------
-  function detectBot(uaRaw) {
-    const ua = (uaRaw || "").toLowerCase();
-
-    // lista enxuta mas bem efetiva (pode estender depois)
-    const patterns = [
-      "googlebot", "bingbot", "yandexbot", "duckduckbot", "baiduspider", "applebot",
-      "facebot", "facebookexternalhit", "twitterbot", "slackbot", "discordbot",
-      "linkedinbot", "semrushbot", "ahrefsbot", "mj12bot", "petalbot", "sogou",
-      "exabot", "ia_archiver", "adsbot-google", "apis-google", "mediapartners-google"
-    ];
-
-    const match = patterns.find(p => ua.includes(p));
-    // alguns crawlers se identificam como “Bot/…”
-    const generic = /\b(bot|crawler|spider|preview)\b/.test(ua);
-
-    const isBot = Boolean(match || generic);
-    const botName = match || (generic ? "GenericBot" : "");
-    return { isBot, botName };
+  function withTimeout(promise, ms, label = "op") {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(`${label}_timeout_${ms}ms`), ms);
+    return {
+      run: () => promise(ctrl.signal).finally(() => clearTimeout(t)),
+      signal: ctrl.signal
+    };
   }
 
-  // ---------- DEVICE TYPE DETECTION ----------
+  function isLikelyNetworkError(err) {
+    const msg = String(err && err.message || err || "").toLowerCase();
+    return (
+      msg.includes("networkerror") ||
+      msg.includes("failed to fetch") ||
+      msg.includes("timeout") ||
+      msg.includes("abort") ||
+      msg.includes("net::") ||
+      msg.includes("connection") ||
+      msg.includes("ssl") ||
+      msg.includes("tls")
+    );
+  }
+
+  // ==========================
+  // Bot detection (sua versão)
+  // ==========================
+  function detectBot(uaRaw) {
+    const ua = (uaRaw || "").toLowerCase();
+    const patterns = [
+      "googlebot","bingbot","yandexbot","duckduckbot","baiduspider","applebot",
+      "facebot","facebookexternalhit","twitterbot","slackbot","discordbot",
+      "linkedinbot","semrushbot","ahrefsbot","mj12bot","petalbot","sogou",
+      "exabot","ia_archiver","adsbot-google","apis-google","mediapartners-google"
+    ];
+    const match = patterns.find(p => ua.includes(p));
+    const generic = /\b(bot|crawler|spider|preview)\b/.test(ua);
+    return { isBot: Boolean(match || generic), botName: match || (generic ? "GenericBot" : "") };
+  }
+
+  // ==========================
+  // Device detection (sua versão com ajustes mínimos)
+  // ==========================
   function detectDevice(uaRaw, hints) {
     const ua = (uaRaw || "").toLowerCase();
-
-    // Client Hints: mobile boolean e model ajudam bastante
     const chMobile = typeof hints?.mobile === "boolean" ? hints.mobile : null;
     const chModel = hints?.model || "";
 
-    // heurísticas por UA
-    const isIPad = /ipad/.test(ua) || (/macintosh/.test(ua) && 'ontouchstart' in window); // iPadOS 13+ se identifica como Mac
+    const isIPad = /ipad/.test(ua) || (/macintosh/.test(ua) && 'ontouchstart' in window);
     const isIPhone = /iphone/.test(ua);
     const isAndroid = /android/.test(ua);
     const isAndroidTablet = isAndroid && !/mobile/.test(ua);
@@ -64,7 +97,6 @@
       deviceType = "tablet";
     }
 
-    // modelo: prioriza Client Hints; senão alguns palpites
     let deviceModel = chModel || "";
     if (!deviceModel) {
       if (isIPhone) deviceModel = "iPhone";
@@ -74,20 +106,19 @@
         if (m) deviceModel = m[0];
       }
     }
-
-    // sinal de toque e ponteiros (mais heurísticas, só para enriquecer)
     const touchPoints = navigator.maxTouchPoints || 0;
     return { deviceType, deviceModel, touchPoints };
   }
 
-  // ---------- UA PARSER (fallback) ----------
+  // ==========================
+  // UA parse (sua versão)
+  // ==========================
   function parseUA(uaRaw) {
     const ua = (uaRaw || "").trim();
     const rx = (r) => r.exec(ua);
     const ver = (m, i=1) => (m && m[i]) ? m[i].replace(/_/g, ".") : "";
     const has = (s) => ua.toLowerCase().includes(s.toLowerCase());
 
-    // Browser
     let browser = "Unknown", browserVersion = "";
     let m;
 
@@ -107,7 +138,6 @@
       browser = "WebKit-based"; browserVersion = ver(m);
     }
 
-    // SO + versão
     let operatingSystem = "Unknown", osVersion = "";
     if (m = rx(/Windows NT ([\d.]+)/)) {
       operatingSystem = "Windows";
@@ -122,7 +152,6 @@
     else if (m = rx(/Android ([\d.]+)/))   { operatingSystem = "Android";osVersion = ver(m); }
     else if (/Linux/i.test(ua))            { operatingSystem = "Linux";  }
 
-    // Arquitetura
     let architecture = "";
     if (/(WOW64|Win64|x64|amd64)/i.test(ua)) architecture = "x64";
     else if (/(arm64|aarch64)/i.test(ua))    architecture = "arm64";
@@ -131,7 +160,9 @@
     return { browser, browserVersion, operatingSystem, osVersion, architecture };
   }
 
-  // ---------- Client Hints + enrich ----------
+  // ==========================
+  // Client Hints + enrich (sua versão)
+  // ==========================
   async function getEnvInfoAsync() {
     const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; }})();
     const connRaw = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -145,7 +176,6 @@
     const ua = navigator.userAgent || null;
     let parsed = parseUA(ua);
 
-    // tenta UA Client Hints
     let ch = { brands: [], mobile: null, model: "", uaFullVersion: "", platform: "", platformVersion: "", architecture: "", bitness: "" };
     try {
       if (navigator.userAgentData) {
@@ -159,7 +189,6 @@
           Object.assign(ch, hi);
         }
 
-        // Browser via brands
         if (ch.brands?.length) {
           const brand = ch.brands.find(b => !/Not.*Brand/i.test(b.brand)) || ch.brands[0];
           if (brand?.brand) {
@@ -172,7 +201,7 @@
         if (ch.architecture) parsed.architecture = parsed.architecture || ch.architecture;
         else if (ch.bitness === "64") parsed.architecture = parsed.architecture || "x64";
       }
-    } catch { /* silencioso */ }
+    } catch { }
 
     const bot = detectBot(ua);
     const device = detectDevice(ua, { mobile: ch.mobile, model: ch.model });
@@ -213,6 +242,7 @@
       return data;
     } catch(e){ derr("readCache error", e); return null; }
   }
+
   function writeCache(coords, place){
     try {
       const payload = { ts: now(), coords, place: place || null };
@@ -309,89 +339,156 @@
     window.dispatchEvent(new CustomEvent("fsi:geo", { detail: fields }));
   }
 
-async function postLog(payload){
-  const indicator = document.getElementById("api-status-indicator");
-  try {
-    const res = await fetch(GEO_ENDPOINT, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-
-    if (indicator) {
-      indicator.style.backgroundColor = "green"; 
-      indicator.title = `API OK: ${GEO_ENDPOINT}`;  // tooltip verde
-    }
-    return res;
-  } catch (err) {
-    if (indicator) {
-      indicator.style.backgroundColor = "red";   
-      indicator.title = `Erro API: ${GEO_ENDPOINT}\n${err.message}`; // tooltip vermelho
-    }
-    throw err;
+  // ==========================
+  // Fetch helpers (cors + timeout + retry)
+  // ==========================
+  async function fetchWithTimeout(url, init, label, ms = TIMEOUT_MS) {
+    const op = withTimeout(async (signal) => {
+      const res = await fetch(url, Object.assign({
+        mode: "cors",
+        cache: "no-store",
+        redirect: "follow",
+        referrerPolicy: "strict-origin-when-cross-origin",
+        signal
+      }, init || {}));
+      return res;
+    }, ms, label);
+    return op.run();
   }
-}
 
-async function checkDbStatus(){
-  const indicator = document.getElementById("db-status-indicator");
-  if (!indicator) return;
-
-  try {
-    const res = await fetch(DB_ENDPOINT, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-      cache: "no-store"
-    });
-
-    const data = await res.json().catch(() => null);
-
-    const statusOk = res.ok && data?.status?.toLowerCase() === "ok";
-
-    if (statusOk) {
-      indicator.style.backgroundColor = "green";
-      indicator.title = `DB Online: ${DB_ENDPOINT}\n${data.elapsedMs} ms @ ${data.serverTimeUtc}`;
-    } else {
-      const msg = data?.error || data?.status || `HTTP ${res.status}`;
-      indicator.style.backgroundColor = "red";
-      indicator.title = `DB Offline: ${DB_ENDPOINT}\n${msg}`;
+  async function preflightCheck(url) {
+    try {
+      const res = await fetchWithTimeout(url, {
+        method: "OPTIONS",
+        headers: {
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "Content-Type",
+          "Origin": location.origin // o browser define Origin automaticamente, mas aqui ajuda no diag
+        }
+      }, "preflight");
+      dlog("preflight", res.status, [...res.headers.entries()]);
+      return res.ok || res.status === 204;
+    } catch (e) {
+      derr("preflight error", e);
+      return false;
     }
-  } catch (err) {
-    indicator.style.backgroundColor = "red";
-    indicator.title = `DB Offline: ${DB_ENDPOINT}\n${err.message}`;
   }
-}
 
-  async function init(){
+  async function postWithRetry(url, body, tries = POST_RETRIES) {
+    let attempt = 0, lastErr;
+    while (attempt <= tries) {
+      try {
+        const res = await fetchWithTimeout(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        }, "post_log");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res;
+      } catch (err) {
+        lastErr = err;
+        if (!isLikelyNetworkError(err) || attempt === tries) break;
+        const wait = RETRY_BASE_MS * Math.pow(2, attempt);
+        dlog(`retry in ${wait}ms (attempt ${attempt + 1}/${tries})`, err);
+        await new Promise(r => setTimeout(r, wait));
+      }
+      attempt++;
+    }
+    throw lastErr;
+  }
+
+  // ==========================
+  // UI indicators
+  // ==========================
+  function setIndicator(elId, ok, titleOk, titleErr) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.style.backgroundColor = ok ? "green" : "red";
+    el.title = ok ? titleOk : titleErr;
+  }
+
+  async function postLog(payload) {
+    try {
+      if (PREFLIGHT_DIAGNOSTIC) {
+        const ok = await preflightCheck(GEO_ENDPOINT);
+        if (!ok) throw new Error("Preflight CORS falhou");
+      }
+      const res = await postWithRetry(GEO_ENDPOINT, payload, POST_RETRIES);
+      setIndicator("api-status-indicator", true, `API OK: ${GEO_ENDPOINT}`, "");
+      return res;
+    } catch (err) {
+      setIndicator("api-status-indicator", false, "", `Erro API: ${GEO_ENDPOINT}\n${err.message || err}`);
+      throw err;
+    }
+  }
+
+  async function checkDbStatus() {
+    try {
+      const res = await fetchWithTimeout(DB_ENDPOINT, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      }, "db_status");
+
+      const data = await res.json().catch(() => null);
+      const statusOk = res.ok && data?.status?.toLowerCase() === "ok";
+      if (statusOk) {
+        setIndicator("db-status-indicator", true,
+          `DB Online: ${DB_ENDPOINT}\n${data.elapsedMs} ms @ ${data.serverTimeUtc}`, "");
+      } else {
+        const msg = data?.error || data?.status || `HTTP ${res.status}`;
+        setIndicator("db-status-indicator", false, "",
+          `DB Offline: ${DB_ENDPOINT}\n${msg}`);
+      }
+    } catch (err) {
+      setIndicator("db-status-indicator", false, "",
+        `DB Offline: ${DB_ENDPOINT}\n${err.message || err}`);
+    }
+  }
+
+  // ==========================
+  // Init
+  // ==========================
+  let started = false;
+
+  function validateApiBase() {
+    try {
+      const u = new URL(API_BASE);
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) {
+        // usar IP direto quebra TLS/CORS (cert CN inválido) — avisa no console.
+        derr("API_BASE aponta para IP; prefira hostname com certificado válido:", API_BASE);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function init() {
     if (started) return;
-    started = true;   
-    dlog("init start");
+    started = true;
+    dlog("init start", { API_BASE, GEO_ENDPOINT, DB_ENDPOINT });
+    validateApiBase();
 
     const env = await getEnvInfoAsync();
-
     const cached = readCache();
-    if(cached?.coords){
+
+    if (cached?.coords) {
       setDom({ geo: cached.coords, env });
-      postLog({ geo: cached.coords, env }).catch(()=>{});
+      postLog({ geo: cached.coords, env }).catch(() => {});
     } else {
       try {
         const pos = await getPosition();
         const place = null;
         const geo = pickAllFieldsFrom(pos, place);
-
         writeCache(geo, place);
         setDom({ geo, env });
-
         await postLog({ geo, env });
-      } catch(err){
+      } catch (err) {
         derr("Geolocation failed", err?.message || err);
-        await postLog({ geo: null, env, error: (err?.message || String(err)) }).catch(()=>{});
+        await postLog({ geo: null, env, error: (err?.message || String(err)) }).catch(() => {});
       }
     }
 
+    // Health check imediato + a cada 10s
     checkDbStatus();
-
-    setInterval(checkDbStatus, 30000);
+    setInterval(checkDbStatus, 10000);
   }
 
   if (document.readyState === "loading") {
@@ -401,4 +498,5 @@ async function checkDbStatus(){
   }
 
   window.addEventListener("fsi:geo", (e) => dlog("ready (event)", e.detail));
+
 })();
