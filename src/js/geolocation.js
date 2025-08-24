@@ -13,7 +13,7 @@
   // Permite override via janela (útil em dev): window.__FSI_API_BASE = "https://localhost:4443"
   const API_PORT = "4443";
   const DEFAULT_API_BASE = `https://api.furlaneti.com:${API_PORT}`;
-  const API_BASE = `https://191.252.83.180:4443:${API_PORT}`;
+  const API_BASE = `https://191.252.83.180:${API_PORT}`;
 
   // Endpoints
   const GEO_ENDPOINT = `${API_BASE}/api/geolocation`;           // POST (CORS necessário)
